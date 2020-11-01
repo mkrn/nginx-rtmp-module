@@ -1699,9 +1699,6 @@ ngx_rtmp_hls_update_fragment(ngx_rtmp_session_t *s, uint64_t ts,
     ngx_buf_t                  *b;
     int64_t                     d;
 
-    ngx_log_error(NGX_LOG_DEBUG, s->connection->log, 0,
-                  "hls: update fragment");
-
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
     f = NULL;
@@ -1709,17 +1706,23 @@ ngx_rtmp_hls_update_fragment(ngx_rtmp_session_t *s, uint64_t ts,
     discont = 1;
 
     if (ctx->opened) {
+
+        ngx_log_error(NGX_LOG_DEBUG, s->connection->log, 0,
+            "hls: '%s' update fragment, ts: %ld frag_ts: %ld, boundary: %i, flushrate: %lu", ctx->stream.data, (long)ts, (long)ctx->frag_ts, boundary, flush_rate);
+
         f = ngx_rtmp_hls_get_frag(s, ctx->nfrags);
         d = (int64_t) (ts - ctx->frag_ts);
 
-        if (d > (int64_t) hacf->max_fraglen * 90 || d < -90000) {
+        if (d > (int64_t) hacf->max_fraglen * 90) {
             ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                          "hls: force fragment split: %.3f sec, ", d / 90000.);
+                          "hls: '%s' force fragment split: %.3f sec, ts: %ld frag_ts: %ld, boundary: %i, flushrate: %lu", ctx->stream.data, d / 90000., (long)ts, (long)ctx->frag_ts, boundary, flush_rate);
             force = 1;
 
         } else {
-            f->duration = (ts - ctx->frag_ts) / 90000.;
-            discont = 0;
+            if (ts > ctx->frag_ts) {
+                f->duration = (ts - ctx->frag_ts) / 90000.;
+                discont = 0;
+            }
         }
     }
 
@@ -1748,6 +1751,8 @@ ngx_rtmp_hls_update_fragment(ngx_rtmp_session_t *s, uint64_t ts,
     }
 
     if (boundary || force) {
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+            "hls: splitting: ts: %ld frag_ts: %ld, duration: %.3f", (long)ts, (long)ctx->frag_ts, (long)f->duration);
         ngx_rtmp_hls_close_fragment(s);
         ngx_rtmp_hls_open_fragment(s, ts, discont);
     }
@@ -2180,6 +2185,14 @@ ngx_rtmp_hls_video(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     b = ctx->aframe;
     boundary = frame.key && (codec_ctx->aac_header == NULL || !ctx->opened ||
                              (b && b->last > b->pos));
+
+    int64_t d = (int64_t) (frame.dts - ctx->frag_ts);
+
+    // Video Frame too out of sync, dont write it at all
+    if (d < 0) {
+        ngx_log_error(NGX_LOG_DEBUG, s->connection->log, 0, "Dropping out of sync video");
+        return NGX_OK;
+    }
 
     ngx_rtmp_hls_update_fragment(s, frame.dts, boundary, 1);
 
