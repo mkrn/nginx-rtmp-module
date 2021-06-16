@@ -736,8 +736,7 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     if (ctx->publishing == 0) {
-        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                       "live: %s from non-publisher", type_s);
+        
         return NGX_OK;
     }
 
@@ -1077,8 +1076,7 @@ ngx_rtmp_live_data(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     if (ctx->publishing == 0) {
-        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                       "live: %s from non-publisher", msg_type);
+        
         return NGX_OK;
     }
 
@@ -1408,6 +1406,8 @@ ngx_rtmp_live_publish(ngx_rtmp_session_t *s, ngx_rtmp_publish_t *v)
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx == NULL || !ctx->publishing) {
+        ngx_log_error(NGX_LOG_DEBUG, s->connection->log, 0,
+                   "not publishing, goto next");
         goto next;
     }
 
