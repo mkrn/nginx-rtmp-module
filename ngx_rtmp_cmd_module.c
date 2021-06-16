@@ -8,7 +8,6 @@
 #include <ngx_core.h>
 #include "ngx_rtmp_cmd_module.h"
 #include "ngx_rtmp_streams.h"
-#include "ngx_rtmp_live_module.h"
 
 
 
@@ -506,14 +505,7 @@ ngx_rtmp_cmd_publish_init(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
 
     ngx_rtmp_cmd_fill_args(v.name, v.args);
 
-    // Try to figure out here IF already publishing?
-    ngx_rtmp_live_stream_t        **stream;
-
-    stream = ngx_rtmp_live_get_stream(s, v.name, 0);
-
-    if (*stream && (*stream)->publishing) {
-      return NGX_ERROR;
-    }
+    // Try to figure out here IF already publishing? .........
 
     ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
                   "publish: name='%s' args='%s' type=%s silent=%d",
