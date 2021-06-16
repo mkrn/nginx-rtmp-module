@@ -243,7 +243,7 @@ ngx_rtmp_live_get_stream(ngx_rtmp_session_t *s, u_char *name, int create)
         return NULL;
     }
 
-    ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
             "live: create stream '%s'", name);
 
     if (lacf->free_streams) {
@@ -292,11 +292,11 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
 
-    ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                    "live: set active=%ui", active);
 
     if (ctx->active == active) {
-        ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                        "live: unchanged active=%ui", active);
         return;
     }
@@ -591,7 +591,7 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
         goto next;
     }
 
-    ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                    "live: leave '%s'", ctx->stream->name);
 
     if (ctx->stream->publishing && ctx->publishing) {
@@ -629,7 +629,7 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
         goto next;
     }
 
-    ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                    "live: delete empty stream '%s'",
                    ctx->stream->name);
 
@@ -736,7 +736,7 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     if (ctx->publishing == 0) {
-        ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                        "live: %s from non-publisher", type_s);
         return NGX_OK;
     }
@@ -1077,7 +1077,7 @@ ngx_rtmp_live_data(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     if (ctx->publishing == 0) {
-        ngx_log_error(NGX_LOG_ERR,, s->connection->log, 0,
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                        "live: %s from non-publisher", msg_type);
         return NGX_OK;
     }
