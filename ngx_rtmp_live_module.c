@@ -476,8 +476,8 @@ ngx_rtmp_live_stream_eof(ngx_rtmp_session_t *s, ngx_rtmp_stream_eof_t *v)
         goto next;
     }
 
-    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
-                   "live: stream_eof");
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                          "live: ('%s'): live: stream_eof '%s'", s->app.data, ctx->stream->name);
 
     ngx_rtmp_live_stop(s);
 
@@ -500,8 +500,8 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx && ctx->stream) {
-        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
-                       "live: already joined");
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                          "live: ('%s'): already joined '%s'", s->app.data, name);
         return;
     }
 
@@ -540,6 +540,8 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
 
             ngx_rtmp_send_status(s, "NetStream.Publish.BadName", "error",
                                  "Already publishing");
+
+            ngx_rtmp_finalize_session(s);
 
             return;
         }
