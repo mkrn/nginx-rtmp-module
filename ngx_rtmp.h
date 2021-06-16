@@ -269,6 +269,9 @@ typedef struct {
     size_t                  out_queue;
     size_t                  out_cork;
     ngx_chain_t            *out[0];
+
+    /* close quietly? */
+    unsigned                close_quietly:1;
 } ngx_rtmp_session_t;
 
 

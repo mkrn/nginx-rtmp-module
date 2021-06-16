@@ -540,7 +540,7 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
 
             ngx_rtmp_send_status(s, "NetStream.Publish.BadName", "error",
                                  "Already publishing");
-
+            s->close_quietly = 1;
             ngx_rtmp_finalize_session(s);
 
             return;
