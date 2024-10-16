@@ -768,6 +768,9 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     prio = (h->type == NGX_RTMP_MSG_VIDEO ?
             ngx_rtmp_get_video_frame_type(in) : 0);
 
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "live: prio: %d", prio);
+
     cscf = ngx_rtmp_get_module_srv_conf(s, ngx_rtmp_core_module);
 
     csidx = !(lacf->interleave || h->type == NGX_RTMP_MSG_VIDEO);
@@ -818,7 +821,7 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
             header = codec_ctx->aac_header;
 
             if (lacf->interleave) {
-                coheader = codec_ctx->avc_header;
+                coheader = codec_ctx->video_codec_id == NGX_RTMP_VIDEO_HEVC ? codec_ctx->hevc_header : codec_ctx->avc_header;
             }
 
             if (codec_ctx->audio_codec_id == NGX_RTMP_AUDIO_AAC &&
@@ -829,13 +832,14 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
             }
 
         } else {
-            header = codec_ctx->avc_header;
+            header = codec_ctx->video_codec_id == NGX_RTMP_VIDEO_HEVC ? codec_ctx->hevc_header : codec_ctx->avc_header;
 
             if (lacf->interleave) {
                 coheader = codec_ctx->aac_header;
             }
 
-            if (codec_ctx->video_codec_id == NGX_RTMP_VIDEO_H264 &&
+            if ((codec_ctx->video_codec_id == NGX_RTMP_VIDEO_H264 ||
+                 codec_ctx->video_codec_id == NGX_RTMP_VIDEO_HEVC) &&
                 ngx_rtmp_is_codec_header(in))
             {
                 prio = 0;
@@ -846,6 +850,9 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
         if (codec_ctx->meta) {
             meta = codec_ctx->meta;
             meta_version = codec_ctx->meta_version;
+
+            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "live: meta_version: %uD", meta_version);
         }
     }
 
@@ -858,6 +865,7 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
 
         ss = pctx->session;
         cs = &pctx->cs[csidx];
+ 
 
         /* send metadata */
 

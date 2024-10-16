@@ -51,6 +51,7 @@ typedef struct {
     unsigned                            initialized:1;
     unsigned                            aac_header_sent:1;
     unsigned                            avc_header_sent:1;
+    unsigned                            hevc_header_sent:1;
     unsigned                            video_key_sent:1;
     unsigned                            audio:1;
     unsigned                            video:1;

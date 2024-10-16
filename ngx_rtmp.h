@@ -600,14 +600,29 @@ ngx_int_t ngx_rtmp_send_fi(ngx_rtmp_session_t *s);
 static ngx_inline ngx_int_t
 ngx_rtmp_get_video_frame_type(ngx_chain_t *in)
 {
-    return (in->buf->pos[0] & 0xf0) >> 4;
+    uint8_t higher_4_bits = in->buf->pos[0] & 0xF0;  // Mask to get only the higher 4 bits
+    
+    if (higher_4_bits & 0x80) {  // Check if the highest bit is set
+        // Enhanced RTMP spec
+        return (higher_4_bits & 0x70) >> 4;  // Return bits 6-4
+    } else {
+        // Original RTMP spec
+        return higher_4_bits >> 4;
+    }
 }
-
 
 static ngx_inline ngx_int_t
 ngx_rtmp_is_codec_header(ngx_chain_t *in)
 {
-    return in->buf->pos + 1 < in->buf->last && in->buf->pos[1] == 0;
+    uint8_t first_byte = in->buf->pos[0];
+    uint8_t first_4_bits = first_byte >> 4;  // Get the first 4 bits
+
+    if (first_4_bits & 0x8) {  // Check if the highest bit is set (ex_header is true)
+        uint8_t next_4_bits = first_byte & 0x0F;  // Get the next 4 bits
+        return next_4_bits == 0;
+    } else {
+        return in->buf->pos + 1 < in->buf->last && in->buf->pos[1] == 0;
+    }
 }
 
 

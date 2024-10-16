@@ -30,6 +30,10 @@ static void ngx_rtmp_codec_parse_aac_header(ngx_rtmp_session_t *s,
        ngx_chain_t *in);
 static void ngx_rtmp_codec_parse_avc_header(ngx_rtmp_session_t *s,
        ngx_chain_t *in);
+static void ngx_rtmp_codec_parse_hevc_header(ngx_rtmp_session_t *s,
+       ngx_chain_t *in);
+
+
 #if (NGX_DEBUG)
 static void ngx_rtmp_codec_dump_header(ngx_rtmp_session_t *s, const char *type,
        ngx_chain_t *in);
@@ -122,6 +126,7 @@ video_codecs[] = {
     "On2-VP6-Alpha",
     "ScreenVideo2",
     "H264",
+    "HEVC"
 };
 
 
@@ -137,6 +142,9 @@ ngx_rtmp_get_audio_codec_name(ngx_uint_t id)
 u_char *
 ngx_rtmp_get_video_codec_name(ngx_uint_t id)
 {
+    if (id == NGX_RTMP_VIDEO_HEVC) {
+        return (u_char *)"HEVC";
+    }
     return (u_char *)(id < sizeof(video_codecs) / sizeof(video_codecs[0])
         ? video_codecs[id]
         : "");
@@ -174,6 +182,11 @@ ngx_rtmp_codec_disconnect(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     if (ctx->avc_header) {
         ngx_rtmp_free_shared_chain(cscf, ctx->avc_header);
         ctx->avc_header = NULL;
+    }
+
+    if (ctx->hevc_header) {
+        ngx_rtmp_free_shared_chain(cscf, ctx->hevc_header);
+        ctx->hevc_header = NULL;
     }
 
     if (ctx->aac_header) {
@@ -216,26 +229,81 @@ ngx_rtmp_codec_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
         return NGX_OK;
     }
 
-    fmt =  in->buf->pos[0];
+ 
+
+    /* Debug the whole header */
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: header type: %d", h->type);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: header timestamp: %uD", h->timestamp);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: header mlen: %d", h->mlen);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: header csid: %d", h->csid);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: header msid: %d", h->msid);
+
+    fmt = in->buf->pos[0];
+    
+
     if (h->type == NGX_RTMP_MSG_AUDIO) {
         ctx->audio_codec_id = (fmt & 0xf0) >> 4;
         ctx->audio_channels = (fmt & 0x01) + 1;
         ctx->sample_size = (fmt & 0x02) ? 2 : 1;
 
+        ngx_log_debug3(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: audio codec_id=%ui, channels=%ui, sample_size=%ui",
+                       ctx->audio_codec_id, ctx->audio_channels, ctx->sample_size);
+
         if (ctx->sample_rate == 0) {
-            ctx->sample_rate = sample_rates[(fmt & 0x0c) >> 2];
+            ngx_uint_t sample_rate_index = (fmt & 0x0c) >> 2;
+            ctx->sample_rate = sample_rates[sample_rate_index];
+            ngx_log_debug3(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: audio fmt=%02xd, rateread=%02xd, sample_rate=%ui",
+                           fmt, sample_rate_index, ctx->sample_rate);
         }
     } else {
-        ctx->video_codec_id = (fmt & 0x0f);
-    }
+        ngx_uint_t is_ex_header = (fmt & 0x80) != 0; 
 
-    /* save AVC/AAC header */
+        if (is_ex_header) {
+            // ExVideoTagHeader: PacketType followed by FourCC
+            if (in->buf->last - in->buf->pos < 5) {
+                return NGX_OK;
+            } 
+            uint32_t fourcc = ngx_rtmp_r32(*(uint32_t *)(in->buf->pos + 1));
+            
+            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: video codec id (ExVideoTagHeader): 0x%08xui", ctx->video_codec_id);
+
+            ctx->video_codec_id = fourcc;
+ 
+            
+        } else {
+            ctx->video_codec_id = fmt & 0x0f;
+            
+            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: video codec id: %ui", ctx->video_codec_id);
+        }
+  
+    }
+    /* save AVC/AAC header: at least 3 bytes available */
     if (in->buf->last - in->buf->pos < 3) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: not enough bytes for AVC/AAC header");
         return NGX_OK;
     }
 
     /* no conf */
-    if (!ngx_rtmp_is_codec_header(in)) {
+    if ((h->type == NGX_RTMP_MSG_VIDEO && !ngx_rtmp_is_codec_header(in)) || (h->type == NGX_RTMP_MSG_AUDIO && ( in->buf->pos + 1 < in->buf->last && in->buf->pos[1] != 0)))  {
+        if (in->buf->last - in->buf->pos >= 5) {
+            ngx_log_debug5(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: not a codec header, first 5 bytes: %02xd %02xd %02xd %02xd %02xd",
+                           in->buf->pos[0], in->buf->pos[1], in->buf->pos[2], 
+                           in->buf->pos[3], in->buf->pos[4]);
+        } else {
+            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: not a codec header, less than 5 bytes available");
+        }
         return NGX_OK;
     }
 
@@ -251,6 +319,9 @@ ngx_rtmp_codec_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
         if (ctx->video_codec_id == NGX_RTMP_VIDEO_H264) {
             header = &ctx->avc_header;
             ngx_rtmp_codec_parse_avc_header(s, in);
+        } else if (ctx->video_codec_id == NGX_RTMP_VIDEO_HEVC) {
+            header = &ctx->hevc_header;
+            ngx_rtmp_codec_parse_hevc_header(s, in);
         }
     }
 
@@ -263,6 +334,15 @@ ngx_rtmp_codec_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     *header = ngx_rtmp_append_shared_bufs(cscf, NULL, in);
+
+    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0, "codec: header saved");
+    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: printing entire in->buf");
+    
+    for (u_char *p = in->buf->pos; p < in->buf->last; p++) {
+        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: %02xd", *p);
+    }
 
     return NGX_OK;
 }
@@ -299,8 +379,12 @@ ngx_rtmp_codec_parse_aac_header(ngx_rtmp_session_t *s, ngx_chain_t *in)
     idx = (ngx_uint_t) ngx_rtmp_bit_read(&br, 4);
     if (idx == 15) {
         ctx->sample_rate = (ngx_uint_t) ngx_rtmp_bit_read(&br, 24);
+        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: aac sample rate set to %ui (custom)", ctx->sample_rate);
     } else {
         ctx->sample_rate = aac_sample_rates[idx];
+        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: aac sample rate set to %ui (from table)", ctx->sample_rate);
     }
 
     ctx->aac_chan_conf = (ngx_uint_t) ngx_rtmp_bit_read(&br, 4);
@@ -316,8 +400,12 @@ ngx_rtmp_codec_parse_aac_header(ngx_rtmp_session_t *s, ngx_chain_t *in)
         idx = (ngx_uint_t) ngx_rtmp_bit_read(&br, 4);
         if (idx == 15) {
             ctx->sample_rate = (ngx_uint_t) ngx_rtmp_bit_read(&br, 24);
+            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: aac sample rate updated to %ui (custom, SBR)", ctx->sample_rate);
         } else {
             ctx->sample_rate = aac_sample_rates[idx];
+            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: aac sample rate updated to %ui (from table, SBR)", ctx->sample_rate);
         }
 
         ctx->aac_profile = (ngx_uint_t) ngx_rtmp_bit_read(&br, 5);
@@ -555,6 +643,104 @@ ngx_rtmp_codec_parse_avc_header(ngx_rtmp_session_t *s, ngx_chain_t *in)
                    ctx->avc_profile, ctx->avc_compat, ctx->avc_level,
                    ctx->avc_nal_bytes, ctx->avc_ref_frames,
                    ctx->width, ctx->height);
+}
+
+
+static void
+ngx_rtmp_codec_parse_hevc_header(ngx_rtmp_session_t *s, ngx_chain_t *in)
+{
+    ngx_rtmp_codec_ctx_t   *ctx;
+    ngx_rtmp_bit_reader_t   br;
+    ngx_uint_t              num_arrays, nal_unit_type, num_nalus;
+    ngx_uint_t              i, j, width, height;
+
+    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: parsing HEVC header");
+
+    ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_codec_module);
+    if (ctx == NULL) {
+        return;
+    }
+
+    ngx_rtmp_bit_init_reader(&br, in->buf->pos, in->buf->last);
+
+    /* Skip configuration version */
+    ngx_uint_t config_version = ngx_rtmp_bit_read(&br, 8);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: HEVC config version: %ui", config_version);
+
+    /* Read profile space, tier flag, profile IDC */
+    ctx->hevc_profile = ngx_rtmp_bit_read(&br, 5);
+    ngx_uint_t tier_flag = ngx_rtmp_bit_read(&br, 1);
+    ctx->hevc_level = ngx_rtmp_bit_read(&br, 7);
+    ngx_log_debug3(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: HEVC profile: %ui, tier flag: %ui, level: %ui",
+                   ctx->hevc_profile, tier_flag, ctx->hevc_level);
+
+    /* Skip some fields */
+    ngx_uint_t general_profile_compatibility_flags = ngx_rtmp_bit_read(&br, 32);
+    ngx_uint_t general_constraint_indicator_flags = ngx_rtmp_bit_read(&br, 12);
+    ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: HEVC profile compatibility flags: 0x%xui, constraint indicator flags: 0x%xui",
+                   general_profile_compatibility_flags, general_constraint_indicator_flags);
+
+    /* Read number of arrays */
+    num_arrays = ngx_rtmp_bit_read(&br, 8);
+    ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "codec: HEVC number of arrays: %ui", num_arrays);
+    for (i = 0; i < num_arrays; i++) {
+        nal_unit_type = ngx_rtmp_bit_read(&br, 5);
+        num_nalus = ngx_rtmp_bit_read(&br, 16);
+
+        ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: HEVC array %ui: nal_unit_type=%ui", i, nal_unit_type);
+        ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "codec: HEVC array %ui: num_nalus=%ui", i, num_nalus);
+
+        for (j = 0; j < num_nalus; j++) {
+            ngx_uint_t nal_unit_length = ngx_rtmp_bit_read(&br, 16);
+            ngx_log_debug3(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "codec: HEVC array %ui, nalu %ui: length=%ui", 
+                           i, j, nal_unit_length);
+            
+            if (nal_unit_type == 33) { /* SPS */
+                /* Parse SPS for width and height */
+                ngx_rtmp_bit_read(&br, 16); /* Skip nal_unit_header */
+                
+                /* TODO: Implement proper SPS parsing for HEVC */
+                /* This is a simplified example and may not work for all HEVC streams */
+                ngx_rtmp_bit_read(&br, 4); /* sps_video_parameter_set_id */
+                ngx_rtmp_bit_read(&br, 3); /* sps_max_sub_layers_minus1 */
+                ngx_rtmp_bit_read(&br, 1); /* sps_temporal_id_nesting_flag */
+                
+                /* profile_tier_level() */
+                ngx_rtmp_bit_read(&br, 96);
+                
+                /* Skip to pic_width_in_luma_samples and pic_height_in_luma_samples */
+                ngx_rtmp_bit_read(&br, 4); /* sps_seq_parameter_set_id */
+                ngx_rtmp_bit_read(&br, 4); /* chroma_format_idc */
+                
+                width = ngx_rtmp_bit_read(&br, 16);
+                height = ngx_rtmp_bit_read(&br, 16);
+                
+                ctx->width = width;
+                ctx->height = height;
+                
+                ngx_log_debug4(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                               "codec: HEVC header parsed "
+                               "profile=%ui, level=%ui, width=%ui, height=%ui",
+                               ctx->hevc_profile, ctx->hevc_level, ctx->width, ctx->height);
+                
+                return; /* We've got what we need, so we can return */
+            }
+            
+            /* Skip this NAL unit */
+            ngx_rtmp_bit_read(&br, nal_unit_length * 8);
+        }
+    }
+
+    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                  "codec: failed to parse HEVC header");
 }
 
 
@@ -905,23 +1091,28 @@ ngx_rtmp_codec_meta_data(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     if (v.duration != -1) ctx->duration = (double) v.duration;
     if (v.frame_rate != -1) ctx->frame_rate = (double) v.frame_rate;
     if (v.video_data_rate != -1) ctx->video_data_rate = v.video_data_rate;
-    if (v.video_codec_id_n != -1) ctx->video_codec_id = (ngx_uint_t) v.video_codec_id_n;
+    
+    if (v.video_codec_id_n != -1) {
+        ctx->video_codec_id = (ngx_uint_t) v.video_codec_id_n;
+    }
+
+
     if (v.audio_data_rate != -1) ctx->audio_data_rate = v.audio_data_rate;
     if (v.video_keyframe_frequency != -1) ctx->video_keyframe_frequency = v.video_keyframe_frequency;
     if (v.audio_codec_id_n != -1) ctx->audio_codec_id = (v.audio_codec_id_n == 0
             ? NGX_RTMP_AUDIO_UNCOMPRESSED : (ngx_uint_t) v.audio_codec_id_n);
     if (v.profile[0] != '\0') ngx_memcpy(ctx->profile, v.profile, sizeof(v.profile));
     if (v.level[0] != '\0') ngx_memcpy(ctx->level, v.level, sizeof(v.level));
-
     ngx_log_debug8(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
             "codec: data frame: "
-            "width=%ui height=%ui duration=%.3f frame_rate=%.3f "
-            "video=%s (%ui) audio=%s (%ui)",
-            ctx->width, ctx->height, ctx->duration, ctx->frame_rate,
+            "width=%ui height=%ui frame_rate=%.3f "
+            "video=%s (%ui) audio=%s (%ui) video_codec_id_n=%ui",
+            ctx->width, ctx->height, ctx->frame_rate,
             ngx_rtmp_get_video_codec_name(ctx->video_codec_id),
             ctx->video_codec_id,
             ngx_rtmp_get_audio_codec_name(ctx->audio_codec_id),
-            ctx->audio_codec_id);
+            ctx->audio_codec_id,
+            v.video_codec_id_n);
 
     ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
             "codec: data frame: "

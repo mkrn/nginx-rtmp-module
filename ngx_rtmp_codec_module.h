@@ -41,7 +41,8 @@ enum {
     NGX_RTMP_VIDEO_ON2_VP6          = 4,
     NGX_RTMP_VIDEO_ON2_VP6_ALPHA    = 5,
     NGX_RTMP_VIDEO_SCREEN2          = 6,
-    NGX_RTMP_VIDEO_H264             = 7
+    NGX_RTMP_VIDEO_H264             = 7,
+    NGX_RTMP_VIDEO_HEVC             = 0x68766331 // h v c 1
 };
 
 
@@ -68,6 +69,10 @@ typedef struct {
     ngx_uint_t                  avc_level;
     ngx_uint_t                  avc_nal_bytes;
     ngx_uint_t                  avc_ref_frames;
+    ngx_uint_t                  hevc_profile;
+    ngx_uint_t                  hevc_level;
+    // ngx_uint_t                  hevc_nal_bytes;
+
     ngx_uint_t                  sample_rate;    /* 5512, 11025, 22050, 44100 */
     ngx_uint_t                  sample_size;    /* 1=8bit, 2=16bit */
     ngx_uint_t                  audio_channels; /* 1, 2 */
@@ -76,6 +81,7 @@ typedef struct {
 
     ngx_chain_t                *avc_header;
     ngx_chain_t                *aac_header;
+    ngx_chain_t                *hevc_header;
 
     ngx_chain_t                *meta;
     ngx_uint_t                  meta_version;
@@ -84,5 +90,5 @@ typedef struct {
 
 extern ngx_module_t  ngx_rtmp_codec_module;
 
-
+ 
 #endif /* _NGX_RTMP_LIVE_H_INCLUDED_ */
